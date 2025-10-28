@@ -1,28 +1,26 @@
 services:
   app_blue:
-    build:
-      context: ./app
+    image: ${BLUE_IMAGE}  # Will pull from registry
     container_name: app_blue
     environment:
-      - PORT=3000
+      - PORT=${PORT:-3000}
       - APP_POOL=blue
-      - RELEASE_ID=blue-v1.0.0
+      - RELEASE_ID=${RELEASE_ID_BLUE}
     ports:
-      - "8081:3000"
+      - "${BLUE_PORT:-8081}:${PORT:-3000}"
     networks:
       - app_network
     restart: unless-stopped
 
   app_green:
-    build:
-      context: ./app
+    image: ${GREEN_IMAGE}  # Will pull from registry
     container_name: app_green
     environment:
-      - PORT=3000
+      - PORT=${PORT:-3000}
       - APP_POOL=green
-      - RELEASE_ID=green-v1.0.0
+      - RELEASE_ID=${RELEASE_ID_GREEN}
     ports:
-      - "8082:3000"
+      - "${GREEN_PORT:-8082}:${PORT:-3000}"
     networks:
       - app_network
     restart: unless-stopped
@@ -31,7 +29,7 @@ services:
     image: nginx:alpine
     container_name: nginx_proxy
     ports:
-      - "8080:80"
+      - "${NGINX_PORT:-8080}:80"
     volumes:
       - ./nginx.conf.template:/etc/nginx/nginx.conf:ro
     networks:

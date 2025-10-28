@@ -9,11 +9,13 @@ let chaosMode = null;
 
 app.use(express.json());
 
+// Version endpoint
 app.get('/version', (req, res) => {
   if (chaosMode === 'error') {
     return res.status(500).json({ error: 'Chaos mode: error' });
   }
   if (chaosMode === 'timeout') {
+    // Never respond (timeout)
     return;
   }
   
@@ -27,6 +29,7 @@ app.get('/version', (req, res) => {
   });
 });
 
+// Health check
 app.get('/healthz', (req, res) => {
   if (chaosMode) {
     return res.status(503).json({ status: 'unhealthy', chaos: chaosMode });
@@ -34,6 +37,7 @@ app.get('/healthz', (req, res) => {
   res.json({ status: 'healthy' });
 });
 
+// Start chaos
 app.post('/chaos/start', (req, res) => {
   const mode = req.query.mode || 'error';
   chaosMode = mode;
@@ -41,6 +45,7 @@ app.post('/chaos/start', (req, res) => {
   res.json({ chaos: mode, status: 'started' });
 });
 
+// Stop chaos
 app.post('/chaos/stop', (req, res) => {
   chaosMode = null;
   console.log('Chaos mode stopped');

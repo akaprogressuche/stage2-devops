@@ -2,6 +2,7 @@
 
 SERVER_IP="13.62.102.225" 
 SSH_KEY="~/.ssh/hng-key.pem"
+#this variables here are not industry standard and are not best practices to store server IPs and key files
 
 echo "Setting up Stage 2 deployment on $SERVER_IP"
 
