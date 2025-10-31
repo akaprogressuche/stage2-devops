@@ -1,0 +1,108 @@
+import os
+import time
+import re
+import requests
+from collections import deque
+
+# ==========================
+# Configuration
+# ==========================
+LOG_FILE = '/var/log/nginx/access.log'
+SLACK_WEBHOOK_URL = os.environ.get('SLACK_WEBHOOK_URL')
+ACTIVE_POOL = os.environ.get('ACTIVE_POOL', 'blue')
+ERROR_RATE_THRESHOLD = float(os.environ.get('ERROR_RATE_THRESHOLD', 2.0))  # %
+WINDOW_SIZE = int(os.environ.get('WINDOW_SIZE', 200))
+ALERT_COOLDOWN_SEC = int(os.environ.get('ALERT_COOLDOWN_SEC', 300))
+
+# Track recent requests
+request_window = deque(maxlen=WINDOW_SIZE)
+last_alert_time = 0
+
+# Regex to parse Nginx log line (adjusted for your detailed log format)
+LOG_REGEX = re.compile(
+    r'pool=(?P<pool>\w+)\s+release=(?P<release>[\w.-]+)\s+upstream_status=(?P<upstream_status>[\d-]+)'
+)
+
+# ==========================
+# Functions
+# ==========================
+
+def parse_log_line(line):
+    """Parse a single Nginx log line and return a dict with pool and upstream_status."""
+    match = LOG_REGEX.search(line)
+    if match:
+        return match.groupdict()
+    return None
+
+def send_slack_alert(message):
+    """Send an alert message to Slack."""
+    global last_alert_time
+    now = time.time()
+    if now - last_alert_time < ALERT_COOLDOWN_SEC:
+        return  # prevent spamming Slack
+    payload = {"text": message}
+    try:
+        response = requests.post(SLACK_WEBHOOK_URL, json=payload)
+        if response.status_code == 200:
+            print(f"✅ Slack alert sent: {message}")
+        else:
+            print(f"❌ Failed to send Slack alert: {response.status_code} {response.text}")
+        last_alert_time = now
+    except Exception as e:
+        print(f"❌ Error sending Slack alert: {e}")
+
+def check_error_rate():
+    """Check the error rate in the current window and send alert if above threshold."""
+    if not request_window:
+        return
+    errors = sum(1 for status in request_window if status.startswith('5'))
+    rate = (errors / len(request_window)) * 100
+    if rate >= ERROR_RATE_THRESHOLD:
+        send_slack_alert(f"⚠️ High error rate detected: {rate:.2f}% in last {len(request_window)} requests")
+
+def check_failover(pool):
+    """Optional: detect pool changes and alert if needed."""
+    if pool != ACTIVE_POOL:
+        send_slack_alert(f"🔄 Traffic has shifted to {pool} pool (active: {ACTIVE_POOL})")
+
+def tail_log_file():
+    """Tail the real Nginx access log file and process new lines."""
+    print(f"👀 Starting to watch: {LOG_FILE}")
+    while not os.path.exists(LOG_FILE):
+        print(f"⏳ Waiting for {LOG_FILE} to be created...")
+        time.sleep(2)
+
+    with open(LOG_FILE, 'r') as f:
+        f.seek(0, 2)  # Go to end of file
+        while True:
+            try:
+                line = f.readline()
+                if not line:
+                    time.sleep(0.5)
+                    continue
+                parsed = parse_log_line(line)
+                if parsed:
+                    pool = parsed['pool']
+                    upstream_status = parsed['upstream_status']
+                    if upstream_status != '-':
+                        request_window.append(upstream_status)
+                    check_failover(pool)
+                    check_error_rate()
+            except Exception as e:
+                print(f"❌ Error processing line: {e}")
+                time.sleep(1)  # prevent tight crash loop
+
+# ==========================
+# Main
+# ==========================
+if __name__ == "__main__":
+    print("="*50)
+    print("🔍 Blue/Green Deployment Monitor Starting")
+    print("="*50)
+    print(f"📊 Configuration:\n"
+          f" - Active Pool: {ACTIVE_POOL}\n"
+          f" - Error Rate Threshold: {ERROR_RATE_THRESHOLD}%\n"
+          f" - Window Size: {WINDOW_SIZE} requests\n"
+          f" - Alert Cooldown: {ALERT_COOLDOWN_SEC} seconds\n"
+          f" - Slack Webhook: {'Configured' if SLACK_WEBHOOK_URL else 'Not Configured'}\n")
+    tail_log_file()
