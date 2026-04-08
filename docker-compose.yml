@@ -1,49 +1,61 @@
+# Blue/Green deployment stack
+# Traffic flows: client → nginx (8080) → app_blue (8081) or app_green (8082)
+# Switch active pool by updating ACTIVE_POOL in .env and reloading nginx.
+
 services:
+
+  # ── Blue pool ────────────────────────────────────────────────────────────────
   app_blue:
     image: ${BLUE_IMAGE}
     container_name: app_blue
     environment:
-      - PORT=3000
+      - PORT=${PORT:-3000}
       - APP_POOL=blue
-      - RELEASE_ID=blue-v1.0.0
+      - RELEASE_ID=${RELEASE_ID_BLUE}
     ports:
-      - "8081:3000"
+      - "8081:${PORT:-3000}"
     networks:
       - app_network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/healthz"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${PORT:-3000}/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
     restart: unless-stopped
 
+  # ── Green pool ───────────────────────────────────────────────────────────────
   app_green:
     image: ${GREEN_IMAGE}
     container_name: app_green
     environment:
-      - PORT=3000
+      - PORT=${PORT:-3000}
       - APP_POOL=green
-      - RELEASE_ID=green-v1.0.0
+      - RELEASE_ID=${RELEASE_ID_GREEN}
     ports:
-      - "8082:3000"
+      - "8082:${PORT:-3000}"
     networks:
       - app_network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/healthz"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${PORT:-3000}/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
-    restart: unless-stopped
+    restart/-: unless-stopped
 
+  # ── Reverse proxy ────────────────────────────────────────────────────────────
+  # Waits for both pools to be healthy before starting.
+  # Config is mounted read-only; logs are written to ./logs on the host.
   nginx:
     image: nginx:alpine
     container_name: nginx_proxy
+    entrypoint: ["/docker-entrypoint.sh"]
     ports:
-      - "8080:80"
+      - "${NGONX_PORT:-8080}:80"
     volumes:
       - ./nginx.conf.template:/etc/nginx/nginx.conf:ro
+      - ./nginx-entrypoint.sh:/docker-entrypoint.sh:ro
       - ./logs:/var/log/nginx
     networks:
       - app_network
@@ -54,6 +66,9 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── Alert watcher ────────────────────────────────────────────────────────────
+  # Tails nginx logs, tracks error rate over a sliding window,
+  # and posts a Slack alert when the threshold is exceeded.
   alert_watcher:
     build:
       context: ./watcher
@@ -65,7 +80,7 @@ services:
       - WINDOW_SIZE=${WINDOW_SIZE:-200}
       - ALERT_COOLDOWN_SEC=${ALERT_COOLDOWN_SEC:-300}
     volumes:
-      - ./logs:/var/log/nginx:ro
+      - ./logs:/var/log/nginx:ro  # read-only — watcher only reads logs
     networks:
       - app_network
     depends_on:
@@ -75,6 +90,3 @@ services:
 networks:
   app_network:
     driver: bridge
-
-volumes:
-  nginx_logs:

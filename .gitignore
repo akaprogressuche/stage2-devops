@@ -1,0 +1,14 @@
+# Environment variables — use .env.example as the template
+.env
+
+# Nginx logs
+logs/
+
+# Backup files
+*.backup
+*.bak
+
+# OS / editor noise
+.DS_Store
+*.swp
+*.swo
